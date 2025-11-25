@@ -1,5 +1,6 @@
 import { fakerES as fa } from "@faker-js/faker";
 import bcrypt from 'bcrypt';
+
 export const generatePets = (count = 10) => {
   const pets = [];
   for (let i = 0; i < count; i++) {

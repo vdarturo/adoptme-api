@@ -1,0 +1,11 @@
+# Node modules
+node_modules
+
+# Archivos de control de versiones
+.git
+.gitignore
+
+# Documentación y archivos no necesarios en producción
+README.md
+Dockerfile
+docker-compose*.yml

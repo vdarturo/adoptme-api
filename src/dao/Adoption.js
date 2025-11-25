@@ -1,4 +1,4 @@
-import adoptionModel from "./models/Adoption.js";
+import adoptionModel from "./models/adoption.js";
 
 export default class Adoption {
 

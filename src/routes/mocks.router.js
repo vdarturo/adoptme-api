@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { generatePets, generateUsers } from "../mocks/mocks.js";
-import petModel from "../dao/models/Pet.js";
-import userModel from "../dao/models/User.js";
+import petModel from "../dao/models/pet.js";
+import userModel from "../dao/models/user.js";
 
 const router = Router();
 

@@ -1,4 +1,4 @@
-import GenericRepository from "./GenericRepository.js";
+import GenericRepository from "./generic.repository.js";
 
 export default class PetRepository extends GenericRepository {
     constructor(dao) {
