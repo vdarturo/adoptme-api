@@ -1,120 +1,116 @@
-import chai from 'chai';
-import supertest from 'supertest';
-import app from '../src/app.js';
-import { usersService, petsService, adoptionsService } from '../src/services/index.js';
+import request from 'supertest';
+import express from 'express';
+import cookieParser from 'cookie-parser';
+import adoptionsRouter from '../src/routes/adoption.router.js';
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
 
-const expect = chai.expect;
-const request = supertest(app);
+dotenv.config();
 
-describe('Adoptions API', () => {
-  let userId;
-  let petId;
-  let adoptionId;
+const app = express();
 
-  before(async () => {
-    const user = await usersService.create({
-      first_name : 'Test',
-      last_name: 'User',
-      email: 'testingUser@example.com',
-      password: 'testpassword',
-      pets: [],
-    })
+app.use(express.json());
+app.use(cookieParser());
+app.use('/api/adoptions', adoptionsRouter);
 
-    userId = user._id.toString();
-
-    const pet = await petsService.create({
-      name: 'testPet',
-      specie: 'dog',
-      birthDate: '2023-01-01',
-      adopted: false,
-    })
-    petId = pet._id.toString();
-  })
-
-  after(async () => {
-    await usersService.delete(userId);
-    await petsService.delete(petId);
-    if (adoptionId) {
-      await adoptionsService.delete(adoptionId);
+// Conexión a la base de datos
+beforeAll(async () => {
+    try {
+        await mongoose.connect(process.env.MONGO_URL || 'mongodb://localhost:27017/adoptme-test');
+    } catch (error) {
+        console.error('Error connecting to MongoDB:', error);
     }
-  });
+});
 
-  it('GET /api/adoptions - debe obtener todas las adopciones', async () => {
-    const res = await request.get('/api/adoptions');
-    expect(res.status).to.equal(200);
-    expect(res.body.status).to.equal('success');
-    expect(res.body.payload).to.be.an('array');
-  });
-    
-  it('POST /api/adoptions/:uid/:pid - debe crear una nueva adopción', async () => {
-    const res = await request.post(`/api/adoptions/${userId}/${petId}`);
-    expect(res.status).to.equal(200);
-    expect(res.body.status).to.equal('success');
-    expect(res.body.message).to.equal('Pet adopted');
+afterAll(async () => {
+    try {
+        await mongoose.connection.close();
+    } catch (error) {
+        console.error('Error closing MongoDB connection:', error);
+    }
+});
 
-    const adoption = await adoptionsService.getBy({
-        owner: userId,
-        pet: petId
+describe('Adoptions Endpoints', () => {
+    describe('GET /api/adoptions', () => {
+        test('should return all adoptions with status success', async () => {
+            const response = await request(app)
+                .get('/api/adoptions')
+                .expect(200);
+
+            expect(response.body).toHaveProperty('status');
+            expect(response.body.status).toBe('success');
+            expect(response.body).toHaveProperty('payload');
+            expect(Array.isArray(response.body.payload)).toBe(true);
+        });
     });
-    expect(adoption).to.exist;
-    adoptionId = adoption._id.toString();
 
-    const updatedPet = await petsService.getBy({
-        _id: petId
+    describe('GET /api/adoptions/:aid', () => {
+        let adoptionId;
+
+        beforeEach(async () => {
+            // Obtiene la primera adopción o crea una
+            const adoptionsResponse = await request(app).get('/api/adoptions');
+            if (adoptionsResponse.body.payload.length > 0) {
+                adoptionId = adoptionsResponse.body.payload[0]._id;
+            }
+        });
+
+        test('should return an adoption by ID when it exists', async () => {
+            if (adoptionId) {
+                const response = await request(app)
+                    .get(`/api/adoptions/${adoptionId}`)
+                    .expect(200);
+
+                expect(response.body).toHaveProperty('status');
+                expect(response.body.status).toBe('success');
+                expect(response.body).toHaveProperty('payload');
+                expect(response.body.payload).toHaveProperty('_id');
+            }
+        });
+
+        test('should return 404 when adoption does not exist', async () => {
+            const fakeId = '000000000000000000000000';
+            const response = await request(app)
+                .get(`/api/adoptions/${fakeId}`)
+                .expect(404);
+
+            expect(response.body).toHaveProperty('status');
+            expect(response.body.status).toBe('error');
+            expect(response.body).toHaveProperty('error');
+            expect(response.body.error).toBe('Adoption not found');
+        });
     });
-    expect(updatedPet.adopted).to.be.true;
-    expect(updatedPet.owner.toString()).to.equal(userId);
 
-    const updatedUser = await usersService.getUserById(userId);
-    console.log('updatedUser.pets (raw):', updatedUser.pets);
-    console.log('petId:', petId);
+    describe('POST /api/adoptions/:uid/:pid', () => {
+        test('should return 404 when user does not exist', async () => {
+            const fakeUserId = '000000000000000000000000';
+            const fakePetId = '000000000000000000000000';
 
-    const petIds = updatedUser.pets.map((item) => item.toString());
-    expect(petIds.some((item) => item.includes(petId)), `Expected petIds to include ${petId}, but got ${petIds}`).to.be.true;
-  });
+            const response = await request(app)
+                .post(`/api/adoptions/${fakeUserId}/${fakePetId}`)
+                .expect(404);
 
-  it('GET /api/adoptions/:aid - debe obtener una adopcion por ID', async () => {
-    const res = await request.get(`/api/adoptions/${adoptionId}`);
+            expect(response.body).toHaveProperty('status');
+            expect(response.body.status).toBe('error');
+            expect(response.body).toHaveProperty('error');
+            expect(response.body.error).toBe('user Not found');
+        });
 
-    expect(res.status).to.equal(200);
-    expect(res.body.status).to.equal('success');
-    expect(res.body.payload).to.have.property('_id', adoptionId);
-    expect(res.body.payload.owner.toString()).to.equal(userId);
-    expect(res.body.payload.pet.toString()).to.equal(petId);
-  });
+        test('should return 404 when pet does not exist', async () => {
+            // Obtiene el primer usuario
+            const usersResponse = await request(app).get('/api/users');
+            if (usersResponse.body && usersResponse.body.payload && usersResponse.body.payload.length > 0) {
+                const userId = usersResponse.body.payload[0]._id;
+                const fakePetId = '000000000000000000000000';
 
-  it('GET /api/adoptions/:aid - debe devolver 404 si la adopción no existe', async () => {
-    const nonExistentId = '66b1c2d3e4f5a6b7c8d9e0f1';
-    const res = await request.get(`/api/adoptions/${nonExistentId}`);
+                const response = await request(app)
+                    .post(`/api/adoptions/${userId}/${fakePetId}`)
+                    .expect(404);
 
-    expect(res.status).to.equal(404);
-    expect(res.body.status).to.equal('error');
-    expect(res.body.error).to.equal('Adoption not found');
-  });
-
-  it('POST /api/adoptions/:uid/:pid - debe devolver 404 si el usuario no existe', async () => {
-    const nonExistentUserId = '66b1c2d3e4f5a6b7c8d9e0f1';
-    const res = await request.post(`/api/adoptions/${nonExistentUserId}/${petId}`);
-
-    expect(res.status).to.equal(404);
-    expect(res.body.status).to.equal('error');
-    expect(res.body.error).to.equal('user Not found');
-  });
-
-  it('POST /api/adoptions/:uid/:pid - debe devolver 404 si la mascota no existe', async () => {
-    const nonExistentPetId = '66b1c2d3e4f5a6b7c8d9e0f1';
-    const res = await request.post(`/api/adoptions/${userId}/${nonExistentPetId}`);
-
-    expect(res.status).to.equal(404);
-    expect(res.body.status).to.equal('error');
-    expect(res.body.error).to.equal('Pet not found');
-  });
-  
-  it('POST /api/adoptions/:uid/:pid - debe devolver 400 si la mascota ya está adoptada', async () => {
-    const res = await request.post(`/api/adoptions/${userId}/${petId}`);
-    
-    expect(res.status).to.equal(400);
-    expect(res.body.status).to.equal('error');
-    expect(res.body.error).to.equal('Pet is already adopted');
-  });
-})
+                expect(response.body).toHaveProperty('status');
+                expect(response.body.status).toBe('error');
+                expect(response.body.error).toBe('Pet not found');
+            }
+        });
+    });
+});

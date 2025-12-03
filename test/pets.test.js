@@ -1,45 +1,190 @@
-import chai from 'chai';
-import supertest from 'supertest';
-import app from '../src/app.js';
+import request from 'supertest';
+import express from 'express';
+import cookieParser from 'cookie-parser';
+import petsRouter from '../src/routes/pets.router.js';
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
 
-const expect = chai.expect;
-const request = supertest(app);
+dotenv.config();
 
-describe('PETS API', () => {
-  let petId;
+const app = express();
 
-  it('POST /api/pets - debe crear una nueva mascota', async () => {
-    const res = await request.post('/api/pets').send({
-      name: 'peluca',
-      specie: 'gato',
-      birthDate: '2021-01-01'
+app.use(express.json());
+app.use(cookieParser());
+app.use('/api/pets', petsRouter);
+
+// Conexión a la base de datos
+beforeAll(async () => {
+    try {
+        await mongoose.connect(process.env.MONGO_URL || 'mongodb://localhost:27017/adoptme-test');
+    } catch (error) {
+        console.error('Error connecting to MongoDB:', error);
+    }
+});
+
+afterAll(async () => {
+    try {
+        await mongoose.connection.close();
+    } catch (error) {
+        console.error('Error closing MongoDB connection:', error);
+    }
+});
+
+describe('Pets Endpoints', () => {
+    describe('GET /api/pets', () => {
+        test('should return all pets with status success', async () => {
+            const response = await request(app)
+                .get('/api/pets')
+                .expect(200);
+
+            expect(response.body).toHaveProperty('status');
+            expect(response.body.status).toBe('success');
+            expect(response.body).toHaveProperty('payload');
+            expect(Array.isArray(response.body.payload)).toBe(true);
+        });
     });
 
-    expect(res.status).to.equal(200);
-    expect(res.body.payload).to.have.property('_id');
-  });
+    describe('POST /api/pets', () => {
+        test('should create a new pet with valid data', async () => {
+            const petData = {
+                name: 'Fluffy',
+                specie: 'cat',
+                birthDate: '2020-01-15'
+            };
 
-  it('GET /api/pets - debe obtener todas las mascotas', async () => {
-    const res = await request.get('/api/pets');
-    expect(res.status).to.equal(200);
-    expect(res.body.payload).to.be.an('array');
-  });
+            const response = await request(app)
+                .post('/api/pets')
+                .send(petData)
+                .expect(200);
 
-  it('PUT /api/pets/:pid - debe actualizar una mascota por ID', async () => {
-    const res = await request.put(`/api/pets/${petId}`).send({
-        name: 'peluca actualizada',
-        specie: 'gato',
-        birthDate: '2021-01-01'
+            expect(response.body).toHaveProperty('status');
+            expect(response.body.status).toBe('success');
+            expect(response.body).toHaveProperty('payload');
+            expect(response.body.payload).toHaveProperty('_id');
+        });
+
+        test('should return error with incomplete data', async () => {
+            const petData = {
+                name: 'Fluffy'
+            };
+
+            const response = await request(app)
+                .post('/api/pets')
+                .send(petData)
+                .expect(400);
+
+            expect(response.body).toHaveProperty('status');
+            expect(response.body.status).toBe('error');
+            expect(response.body).toHaveProperty('error');
+            expect(response.body.error).toBe('Incomplete values');
+        });
+
+        test('should return error when missing name', async () => {
+            const petData = {
+                specie: 'dog',
+                birthDate: '2020-01-15'
+            };
+
+            const response = await request(app)
+                .post('/api/pets')
+                .send(petData)
+                .expect(400);
+
+            expect(response.body.status).toBe('error');
+            expect(response.body.error).toBe('Incomplete values');
+        });
+
+        test('should return error when missing specie', async () => {
+            const petData = {
+                name: 'Rex',
+                birthDate: '2020-01-15'
+            };
+
+            const response = await request(app)
+                .post('/api/pets')
+                .send(petData)
+                .expect(400);
+
+            expect(response.body.status).toBe('error');
+        });
+
+        test('should return error when missing birthDate', async () => {
+            const petData = {
+                name: 'Rex',
+                specie: 'dog'
+            };
+
+            const response = await request(app)
+                .post('/api/pets')
+                .send(petData)
+                .expect(400);
+
+            expect(response.body.status).toBe('error');
+        });
     });
-    
-    expect(res.status).to.equal(200);
-    expect(res.body.message).to.equal('pet updated');
-  });
 
-  it('DELETE /api/pets/:pid - debe eliminar una mascota por ID', async () => {
-    const res = await request.delete(`/api/pets/${petId}`);
+    describe('PUT /api/pets/:pid', () => {
+        let petId;
 
-    expect(res.status).to.equal(200);
-    expect(res.body.message).to.equal('pet deleted');
-  });
-})
+        beforeEach(async () => {
+            // Crea una mascota para las pruebas
+            const petData = {
+                name: 'UpdateTest',
+                specie: 'bird',
+                birthDate: '2022-06-20'
+            };
+
+            const response = await request(app)
+                .post('/api/pets')
+                .send(petData);
+
+            petId = response.body.payload._id;
+        });
+
+        test('should update a pet successfully', async () => {
+            const updateData = {
+                name: 'UpdatedName'
+            };
+
+            const response = await request(app)
+                .put(`/api/pets/${petId}`)
+                .send(updateData)
+                .expect(200);
+
+            expect(response.body).toHaveProperty('status');
+            expect(response.body.status).toBe('success');
+            expect(response.body).toHaveProperty('message');
+            expect(response.body.message).toBe('pet updated');
+        });
+    });
+
+    describe('DELETE /api/pets/:pid', () => {
+        let petId;
+
+        beforeEach(async () => {
+            // Crea una mascota para las pruebas
+            const petData = {
+                name: 'DeleteTest',
+                specie: 'hamster',
+                birthDate: '2023-03-10'
+            };
+
+            const response = await request(app)
+                .post('/api/pets')
+                .send(petData);
+
+            petId = response.body.payload._id;
+        });
+
+        test('should delete a pet successfully', async () => {
+            const response = await request(app)
+                .delete(`/api/pets/${petId}`)
+                .expect(200);
+
+            expect(response.body).toHaveProperty('status');
+            expect(response.body.status).toBe('success');
+            expect(response.body).toHaveProperty('message');
+            expect(response.body.message).toBe('pet deleted');
+        });
+    });
+});
