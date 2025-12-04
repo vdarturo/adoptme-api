@@ -65,6 +65,12 @@ npm run start
 npm run test
 ```
 
+## Imagen en Docker Hub
+
+```bash
+https://hub.docker.com/r/vdarturo/adoptme-api
+```
+
 ### Ejecutar tests con cobertura
 
 ```bash
